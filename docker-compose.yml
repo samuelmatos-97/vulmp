@@ -1,0 +1,9 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: app/backend/Dockerfile
+    image: vulmp-backend:0.1
+    container_name: vulmp-backend
+    ports:
+      - "8000:8000"
