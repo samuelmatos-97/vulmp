@@ -7,3 +7,20 @@ services:
     container_name: vulmp-backend
     ports:
       - "8000:8000"
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16
+    container_name: vulmp-postgres
+    environment:
+      POSTGRES_USER: vulmp
+      POSTGRES_PASSWORD: vulmp_password
+      POSTGRES_DB: vulmp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
