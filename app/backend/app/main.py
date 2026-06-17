@@ -1,13 +1,16 @@
+from typing import List
+
+from fastapi import Depends
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database import Base
-from app.database import engine
-from app.database import SessionLocal
 from app import models
 from app import schemas
-from typing import List
+from app.database import Base
+from app.database import engine
+from app.database import get_db
+
 
 app = FastAPI()
 
@@ -33,9 +36,10 @@ def health_check():
 
 
 @app.post("/assets", response_model=schemas.AssetResponse)
-def create_asset(asset: schemas.AssetCreate):
-    db: Session = SessionLocal()
-
+def create_asset(
+    asset: schemas.AssetCreate,
+    db: Session = Depends(get_db),
+):
     new_asset = models.Asset(
         name=asset.name,
         asset_type=asset.asset_type,
@@ -45,17 +49,10 @@ def create_asset(asset: schemas.AssetCreate):
     db.add(new_asset)
     db.commit()
     db.refresh(new_asset)
-    db.close()
 
     return new_asset
 
 
 @app.get("/assets", response_model=List[schemas.AssetResponse])
-def list_assets():
-    db: Session = SessionLocal()
-
-    assets = db.query(models.Asset).all()
-
-    db.close()
-
-    return assets
+def list_assets(db: Session = Depends(get_db)):
+    return db.query(models.Asset).all()

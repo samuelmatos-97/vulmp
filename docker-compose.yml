@@ -5,6 +5,8 @@ services:
       dockerfile: app/backend/Dockerfile
     image: vulmp-backend:0.1
     container_name: vulmp-backend
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     depends_on:
@@ -14,11 +16,11 @@ services:
     image: postgres:16
     container_name: vulmp-postgres
     environment:
-      POSTGRES_USER: vulmp
-      POSTGRES_PASSWORD: vulmp_password
-      POSTGRES_DB: vulmp_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
