@@ -1,28 +1,72 @@
 services:
   backend:
+    # Build the FastAPI backend image from the project Dockerfile.
     build:
       context: .
       dockerfile: app/backend/Dockerfile
+
     image: vulmp-backend:0.1
     container_name: vulmp-backend
+
+    # Load the database configuration into the backend container.
     env_file:
       - .env
+
+    # Expose the backend on localhost:8000
     ports:
       - "8000:8000"
+
+    # Start the backend only after PostgreSQL becomes healthy.
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      # Call the readiness endpoint from inside the container.
+      # The check fails if the API or PostgreSQL is unavailable.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   postgres:
     image: postgres:16
     container_name: vulmp-postgres
+
+    # Configure PostgreSQL using values from the .env file.
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+
+    # Expose PostgreSQL to the host for local administration.
     ports:
       - "${POSTGRES_PORT}:5432"
+
+    # Persist database data outside the container lifecycle.
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+    healthcheck:
+      # Check whether PostgreSQL is ready to accept connections.
+      # Double dollar signs pass the variables to the container.
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h localhost -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
+  # Named volume used for persistent PostgreSQL storage.
   postgres_data:

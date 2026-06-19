@@ -28,6 +28,8 @@ This project aims to provide hands-on experience with:
 * Secure Configuration Management
 * Dependency Injection
 * Database Session Management
+* Application Health and Readiness
+* Failure and Recovery Testing
 
 ---
 
@@ -108,10 +110,14 @@ The project currently includes a containerized FastAPI backend integrated with a
 
 Application and database configuration is managed through environment variables loaded by Docker Compose.
 
+The environment includes liveness and readiness endpoints, native Docker health checks and startup dependency management between the backend and PostgreSQL services.
+
 Implemented features:
 
 * FastAPI backend service
-* Health check endpoint
+* FastAPI lifespan management
+* Liveness endpoint
+* Readiness endpoint with PostgreSQL validation
 * Dockerized backend application
 * Docker Compose multi-service environment
 * PostgreSQL database container
@@ -127,6 +133,10 @@ Implemented features:
 * Reusable database session dependency
 * Automatic database session cleanup
 * FastAPI dependency injection with `Depends`
+* PostgreSQL Docker health check
+* Backend Docker health check
+* Backend startup dependency on a healthy PostgreSQL service
+* Failure and recovery testing
 * Asset creation endpoint
 * Asset listing endpoint
 * Automatic OpenAPI documentation
@@ -136,21 +146,42 @@ Implemented features:
 ## Current Architecture
 
 ```text
-.env
-  ↓
-Docker Compose
-  ├── FastAPI Backend Container
-  │       ↓
-  │   SQLAlchemy ORM
-  │       ↓
-  │    psycopg
-  │       ↓
-  └── PostgreSQL Container
-          ↓
-     Docker Volume
+Client
+  |
+  v
+FastAPI Backend Container
+  |
+  |-- GET /health
+  |      Checks whether the FastAPI process is alive
+  |
+  |-- GET /ready
+  |      Checks whether PostgreSQL is available
+  |
+  v
+SQLAlchemy ORM
+  |
+  v
+psycopg
+  |
+  v
+PostgreSQL Container
+  |
+  v
+Persistent Docker Volume
 ```
 
-The current environment runs locally using Docker Compose.
+Configuration flow:
+
+```text
+.env
+  |
+  v
+Docker Compose
+  |
+  +-- Environment variables injected into the backend
+  |
+  +-- PostgreSQL configuration
+```
 
 Docker Compose currently manages:
 
@@ -159,8 +190,13 @@ Docker Compose currently manages:
 * Internal Docker network
 * Persistent PostgreSQL volume
 * Environment variable injection
+* PostgreSQL health check
+* Backend readiness health check
+* Service startup ordering
 
 The backend and PostgreSQL containers communicate through the internal Docker network by using the PostgreSQL service name as the database hostname.
+
+The backend is started only after PostgreSQL passes its health check.
 
 ---
 
@@ -202,6 +238,96 @@ The `.env` file must never be committed to the repository.
 
 ---
 
+## Health and Readiness
+
+The application exposes separate endpoints for liveness and readiness.
+
+### Liveness
+
+```http
+GET /health
+```
+
+This endpoint confirms that the FastAPI process is running.
+
+Response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+The endpoint does not check external dependencies.
+
+### Readiness
+
+```http
+GET /ready
+```
+
+This endpoint confirms that the application can communicate with PostgreSQL.
+
+Successful response:
+
+```json
+{
+  "status": "ready"
+}
+```
+
+When PostgreSQL is unavailable, the endpoint returns:
+
+```text
+503 Service Unavailable
+```
+
+Example response:
+
+```json
+{
+  "detail": "Database unavailable."
+}
+```
+
+This separation allows the platform to distinguish between:
+
+* an application process that is alive;
+* an application that is ready to receive traffic.
+
+---
+
+## Docker Health Checks
+
+The PostgreSQL container uses `pg_isready` to check whether the database is accepting connections.
+
+The backend container calls:
+
+```http
+GET /ready
+```
+
+from inside the container.
+
+The backend is marked as healthy only when:
+
+* the FastAPI service is running;
+* the readiness endpoint responds successfully;
+* PostgreSQL is available.
+
+Docker Compose starts the backend only after the PostgreSQL service becomes healthy.
+
+If PostgreSQL becomes unavailable after startup:
+
+* the backend process remains alive;
+* `GET /health` continues returning `200 OK`;
+* `GET /ready` returns `503 Service Unavailable`;
+* Docker marks the backend container as `unhealthy`.
+
+When PostgreSQL becomes available again, the backend health check recovers automatically without requiring the backend container to be restarted.
+
+---
+
 ## Available Endpoints
 
 ### Health Check
@@ -215,6 +341,22 @@ Response:
 ```json
 {
   "status": "ok"
+}
+```
+
+---
+
+### Readiness Check
+
+```http
+GET /ready
+```
+
+Response:
+
+```json
+{
+  "status": "ready"
 }
 ```
 
@@ -325,15 +467,27 @@ docker compose config --quiet
 
 No output means that the configuration is valid.
 
-### 7. Run the application with Docker Compose
+### 7. Build and start the environment
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-### 8. Test the health endpoint
+The `-d` option starts the services in detached mode.
 
-Open:
+### 8. Check the service status
+
+```bash
+docker compose ps
+```
+
+Both services should eventually appear as:
+
+```text
+healthy
+```
+
+### 9. Test the liveness endpoint
 
 ```text
 http://localhost:8000/health
@@ -347,13 +501,39 @@ Expected response:
 }
 ```
 
-### 9. Open the API documentation
+### 10. Test the readiness endpoint
+
+```text
+http://localhost:8000/ready
+```
+
+Expected response:
+
+```json
+{
+  "status": "ready"
+}
+```
+
+### 11. Open the API documentation
 
 ```text
 http://localhost:8000/docs
 ```
 
-### 10. Stop the environment
+### 12. View the logs
+
+```bash
+docker compose logs --tail=50
+```
+
+Backend logs only:
+
+```bash
+docker compose logs backend --tail=50
+```
+
+### 13. Stop the environment
 
 ```bash
 docker compose down
@@ -361,7 +541,51 @@ docker compose down
 
 This removes the containers and Docker network while preserving the PostgreSQL volume and its stored data.
 
-Do not use `docker compose down -v` unless you intentionally want to delete the PostgreSQL volume and all persisted data.
+Do not use:
+
+```bash
+docker compose down -v
+```
+
+unless you intentionally want to delete the PostgreSQL volume and all persisted data.
+
+---
+
+## Failure and Recovery Test
+
+Stop only PostgreSQL:
+
+```bash
+docker compose stop postgres
+```
+
+Show both running and stopped services:
+
+```bash
+docker compose ps -a
+```
+
+Expected behavior:
+
+* PostgreSQL appears as `Exited`;
+* the backend remains running;
+* the backend eventually becomes `unhealthy`;
+* `GET /health` continues responding successfully;
+* `GET /ready` returns `503 Service Unavailable`.
+
+Restart PostgreSQL:
+
+```bash
+docker compose start postgres
+```
+
+Check the status:
+
+```bash
+docker compose ps
+```
+
+After PostgreSQL becomes healthy, the backend should also recover and become healthy automatically.
 
 ---
 
@@ -384,7 +608,7 @@ vulmp/
 └── README.md
 ```
 
-The local `.env` file is intentionally excluded from this structure because it is not committed to Git.
+The local `.env` file is intentionally excluded because it is not committed to Git.
 
 ---
 
@@ -437,9 +661,24 @@ The local `.env` file is intentionally excluded from this structure because it i
 * Added the reusable `get_db()` database dependency
 * Added FastAPI dependency injection with `Depends`
 * Added automatic SQLAlchemy session cleanup
-* Validated the existing `GET /assets` endpoint
-* Validated the existing `POST /assets` endpoint
+* Validated the existing asset endpoints
 * Confirmed that persisted PostgreSQL data remained available
+
+### Milestone 6 — Health, Readiness and Docker Health Checks
+
+* Replaced the deprecated FastAPI startup event with lifespan management
+* Added the `GET /ready` endpoint
+* Kept `GET /health` as a dedicated liveness endpoint
+* Added PostgreSQL connectivity validation to the readiness endpoint
+* Added a PostgreSQL Docker health check using `pg_isready`
+* Added a backend Docker health check using `GET /ready`
+* Configured the backend to wait for a healthy PostgreSQL service
+* Tested PostgreSQL service failure
+* Confirmed that the backend became unhealthy when PostgreSQL stopped
+* Confirmed that liveness remained available during the failure
+* Confirmed that readiness returned `503 Service Unavailable`
+* Restarted PostgreSQL and validated automatic backend recovery
+* Confirmed that persisted data remained available after recovery
 
 ---
 
@@ -455,13 +694,11 @@ Each milestone is implemented incrementally, tested locally, documented and vers
 
 ## Future Improvements
 
-* Add separate liveness and readiness endpoints
-* Add Docker health checks
-* Replace deprecated FastAPI startup events with lifespan management
 * Add Alembic database migrations
 * Add full CRUD operations for assets
 * Add asset retrieval by ID
 * Add asset update and deletion endpoints
+* Improve API error handling
 * Add vulnerability and scan models
 * Add frontend dashboard
 * Add authentication and authorization
