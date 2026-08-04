@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app import schemas
-from app.database import Base
 from app.database import engine
 from app.database import get_db
 
@@ -19,22 +18,22 @@ from app.database import get_db
 # Manage application startup and shutdown events (lifecycle)
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """Validate the database connection when the application starts."""
+
     try:
+        # Run a simple query to confirm that PostgreSQL is available.
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
 
         print("Database connection successful.")
 
-        Base.metadata.create_all(bind=engine)
-        print("Database tables created successfully.")
-
     except SQLAlchemyError as error:
-        print("Application startup failed: database unavailable.")
-        # Stops the application from looking functional when a dependency is unavailable
+        # Prevent the API from starting without its required database.
         raise RuntimeError(
             "Application startup failed: database unavailable."
         ) from error
 
+    # The application starts serving requests after this point.
     yield
 
 
@@ -45,6 +44,8 @@ app = FastAPI(lifespan=lifespan)
 # If the endpoint answers, it means the FastAPI process is alive
 @app.get("/health")
 def health_check():
+    """Confirm that the FastAPI process is alive."""
+
     return {"status": "ok"}
 
 
@@ -52,7 +53,10 @@ def health_check():
 # If the database is unavailable, it returns a 503 code which means the service exists but it is temporarily unavailable to process traffic.
 @app.get("/ready")
 def readiness_check():
+    """Confirm that the API can communicate with PostgreSQL."""
+
     try:
+        # Validate the database dependency using a lightweight query.
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
 
@@ -70,12 +74,15 @@ def create_asset(
     asset: schemas.AssetCreate,
     db: Session = Depends(get_db),
 ):
+    """Create and persist a new asset."""
+
     new_asset = models.Asset(
         name=asset.name,
         asset_type=asset.asset_type,
         environment=asset.environment,
     )
 
+    # Store the new asset and retrieve its generated ID.
     db.add(new_asset)
     db.commit()
     db.refresh(new_asset)
@@ -85,4 +92,6 @@ def create_asset(
 
 @app.get("/assets", response_model=List[schemas.AssetResponse])
 def list_assets(db: Session = Depends(get_db)):
+    """Return all assets stored in the database."""
+
     return db.query(models.Asset).all()

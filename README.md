@@ -1,6 +1,6 @@
 # VulMP
 
-VulMP (Vulnerability Management Platform) is a cloud-native DevSecOps project designed to simulate a production-like vulnerability management platform.
+VulMP (Vulnerability Management Platform) is a cloud-native DevSecOps project designed to simulate a production-grade vulnerability management platform.
 
 The main goal of this project is to learn and apply modern DevOps, DevSecOps, Cloud and Platform Engineering practices by building a realistic distributed environment from scratch.
 
@@ -30,6 +30,8 @@ This project aims to provide hands-on experience with:
 * Database Session Management
 * Application Health and Readiness
 * Failure and Recovery Testing
+* Database Schema Versioning
+* Database Migrations and Rollbacks
 
 ---
 
@@ -46,6 +48,7 @@ This project aims to provide hands-on experience with:
 ### Database
 
 * PostgreSQL 16
+* Alembic
 
 ### Version Control
 
@@ -110,7 +113,14 @@ The project currently includes a containerized FastAPI backend integrated with a
 
 Application and database configuration is managed through environment variables loaded by Docker Compose.
 
-The environment includes liveness and readiness endpoints, native Docker health checks and startup dependency management between the backend and PostgreSQL services.
+The environment includes:
+
+* FastAPI liveness and readiness endpoints
+* Native Docker health checks
+* PostgreSQL persistent storage
+* Database schema versioning with Alembic
+* Automatic migration execution before backend startup
+* Startup dependency management between PostgreSQL, migrations and the backend
 
 Implemented features:
 
@@ -129,14 +139,18 @@ Implemented features:
 * Public `.env.example` configuration template
 * Protection of local environment variables through `.gitignore`
 * Safe SQLAlchemy connection URL construction
-* Automatic database table creation
 * Reusable database session dependency
 * Automatic database session cleanup
 * FastAPI dependency injection with `Depends`
 * PostgreSQL Docker health check
 * Backend Docker health check
 * Backend startup dependency on a healthy PostgreSQL service
-* Failure and recovery testing
+* Database migrations with Alembic
+* Initial migration for the `assets` table
+* Migration upgrade and rollback validation
+* Database migration consistency checks
+* One-shot Docker migration service
+* Backend startup dependency on successful migrations
 * Asset creation endpoint
 * Asset listing endpoint
 * Automatic OpenAPI documentation
@@ -170,33 +184,37 @@ PostgreSQL Container
 Persistent Docker Volume
 ```
 
-Configuration flow:
+### Application Startup Flow
 
 ```text
-.env
-  |
-  v
 Docker Compose
-  |
-  +-- Environment variables injected into the backend
-  |
-  +-- PostgreSQL configuration
+      |
+      v
+PostgreSQL starts
+      |
+      v
+PostgreSQL becomes healthy
+      |
+      v
+Migration service runs
+alembic upgrade head
+      |
+      v
+Migration service exits successfully
+      |
+      v
+FastAPI backend starts
+      |
+      v
+Backend becomes healthy
 ```
 
-Docker Compose currently manages:
+The migration service is a one-shot container. It applies all pending migrations and then exits with status code `0`.
 
-* `backend` service
-* `postgres` service
-* Internal Docker network
-* Persistent PostgreSQL volume
-* Environment variable injection
-* PostgreSQL health check
-* Backend readiness health check
-* Service startup ordering
+The backend starts only when:
 
-The backend and PostgreSQL containers communicate through the internal Docker network by using the PostgreSQL service name as the database hostname.
-
-The backend is started only after PostgreSQL passes its health check.
+* PostgreSQL is healthy
+* All pending database migrations have completed successfully
 
 ---
 
@@ -235,6 +253,18 @@ POSTGRES_PORT=5432
 ```
 
 The `.env` file must never be committed to the repository.
+
+Inside the Docker network, the backend connects to PostgreSQL using:
+
+```text
+POSTGRES_HOST=postgres
+```
+
+When running database commands directly from the host machine, the hostname must be temporarily changed to:
+
+```text
+POSTGRES_HOST=localhost
+```
 
 ---
 
@@ -290,16 +320,16 @@ Example response:
 }
 ```
 
-This separation allows the platform to distinguish between:
+This separation distinguishes between:
 
-* an application process that is alive;
-* an application that is ready to receive traffic.
+* An application process that is alive
+* An application that is ready to receive traffic
 
 ---
 
 ## Docker Health Checks
 
-The PostgreSQL container uses `pg_isready` to check whether the database is accepting connections.
+The PostgreSQL container uses `pg_isready` to verify that the database is accepting connections.
 
 The backend container calls:
 
@@ -311,20 +341,233 @@ from inside the container.
 
 The backend is marked as healthy only when:
 
-* the FastAPI service is running;
-* the readiness endpoint responds successfully;
-* PostgreSQL is available.
-
-Docker Compose starts the backend only after the PostgreSQL service becomes healthy.
+* The FastAPI process is running
+* The readiness endpoint responds successfully
+* PostgreSQL is available
 
 If PostgreSQL becomes unavailable after startup:
 
-* the backend process remains alive;
-* `GET /health` continues returning `200 OK`;
-* `GET /ready` returns `503 Service Unavailable`;
-* Docker marks the backend container as `unhealthy`.
+* The backend process remains alive
+* `GET /health` continues returning `200 OK`
+* `GET /ready` returns `503 Service Unavailable`
+* Docker eventually marks the backend container as `unhealthy`
 
-When PostgreSQL becomes available again, the backend health check recovers automatically without requiring the backend container to be restarted.
+When PostgreSQL becomes available again, the backend health check recovers automatically without restarting the backend container.
+
+---
+
+## Database Migrations
+
+Alembic is responsible for creating and evolving the PostgreSQL schema.
+
+The FastAPI application no longer creates tables automatically with:
+
+```python
+Base.metadata.create_all(bind=engine)
+```
+
+Schema changes must now be represented by versioned Alembic migrations.
+
+The initial migration is:
+
+```text
+7783a45490f5_create_assets_table.py
+```
+
+It creates:
+
+* The `assets` table
+* The primary key on `id`
+* The `ix_assets_id` index
+
+### Migration Flow
+
+```text
+SQLAlchemy models
+        |
+        v
+Alembic migration files
+        |
+        v
+alembic upgrade head
+        |
+        v
+PostgreSQL schema
+```
+
+### Alembic Revision States
+
+```text
+base
+  |
+  v
+7783a45490f5
+  |
+  v
+head
+```
+
+The current database revision is stored in the PostgreSQL table:
+
+```text
+alembic_version
+```
+
+### Existing Database Baseline
+
+The `assets` table existed before Alembic was introduced.
+
+The existing database was associated with the initial migration using:
+
+```bash
+POSTGRES_HOST=localhost \
+POSTGRES_DB=vulmp_db \
+python -m alembic stamp head
+```
+
+The `stamp` command recorded the revision without executing the migration operations, preventing Alembic from attempting to recreate the existing table.
+
+This was a one-time baseline operation and is not required for new installations.
+
+---
+
+## Migration Commands
+
+Run local Alembic commands from:
+
+```bash
+cd app/backend
+```
+
+Because local commands run outside the Docker network, use `localhost` as the PostgreSQL hostname.
+
+### Show the Current Revision
+
+```bash
+POSTGRES_HOST=localhost \
+python -m alembic current
+```
+
+### Show the Latest Available Revision
+
+```bash
+python -m alembic heads
+```
+
+### Apply All Pending Migrations
+
+```bash
+POSTGRES_HOST=localhost \
+python -m alembic upgrade head
+```
+
+### Revert the Latest Migration
+
+```bash
+POSTGRES_HOST=localhost \
+python -m alembic downgrade -1
+```
+
+This command reverts only the latest applied migration.
+
+### Revert All Migrations
+
+```bash
+POSTGRES_HOST=localhost \
+python -m alembic downgrade base
+```
+
+This command reverts all applied migrations and returns the database to the state before the first revision.
+
+Downgrades should only be executed in a controlled development environment after reviewing the migration and its impact on stored data.
+
+### Check for Model and Schema Differences
+
+```bash
+POSTGRES_HOST=localhost \
+python -m alembic check
+```
+
+Expected output when the models and database are aligned:
+
+```text
+No new upgrade operations detected.
+```
+
+### Create a New Migration
+
+After changing an SQLAlchemy model:
+
+```bash
+POSTGRES_HOST=localhost \
+python -m alembic revision --autogenerate -m "describe schema change"
+```
+
+The generated migration must always be reviewed before it is applied.
+
+---
+
+## Docker Migration Service
+
+Docker Compose includes a one-shot service named:
+
+```text
+migrate
+```
+
+The service runs:
+
+```bash
+python -m alembic -c alembic.ini upgrade head
+```
+
+The expected service state after startup is:
+
+```text
+vulmp-migrate   Exited (0)
+```
+
+`Exited (0)` means that all migrations completed successfully.
+
+The complete service state should resemble:
+
+```text
+vulmp-postgres   Up (healthy)
+vulmp-migrate    Exited (0)
+vulmp-backend    Up (healthy)
+```
+
+To inspect migration logs:
+
+```bash
+docker compose logs migrate
+```
+
+To check the current revision inside Docker:
+
+```bash
+docker compose run --rm migrate \
+  python -m alembic -c alembic.ini current
+```
+
+Expected output:
+
+```text
+7783a45490f5 (head)
+```
+
+To verify that the models and database schema are aligned:
+
+```bash
+docker compose run --rm migrate \
+  python -m alembic -c alembic.ini check
+```
+
+Expected output:
+
+```text
+No new upgrade operations detected.
+```
 
 ---
 
@@ -426,14 +669,14 @@ http://localhost:8000/docs
 
 ## Running the Project Locally
 
-### 1. Clone the repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/samuelmatos-97/vulmp.git
 cd vulmp
 ```
 
-### 2. Create the local environment file
+### 2. Create the Local Environment File
 
 ```bash
 cp .env.example .env
@@ -441,25 +684,25 @@ cp .env.example .env
 
 Review the values inside `.env` before proceeding.
 
-### 3. Create a Python virtual environment
+### 3. Create a Python Virtual Environment
 
 ```bash
 py -V:3.12 -m venv .venv
 ```
 
-### 4. Activate the virtual environment using Git Bash
+### 4. Activate the Virtual Environment Using Git Bash
 
 ```bash
 source .venv/Scripts/activate
 ```
 
-### 5. Install Python dependencies
+### 5. Install Python Dependencies
 
 ```bash
-pip install -r app/backend/requirements.txt
+python -m pip install -r app/backend/requirements.txt
 ```
 
-### 6. Validate the Docker Compose configuration
+### 6. Validate the Docker Compose Configuration
 
 ```bash
 docker compose config --quiet
@@ -467,27 +710,37 @@ docker compose config --quiet
 
 No output means that the configuration is valid.
 
-### 7. Build and start the environment
+### 7. Build and Start the Environment
 
 ```bash
 docker compose up --build -d
 ```
 
-The `-d` option starts the services in detached mode.
+Docker Compose will:
 
-### 8. Check the service status
+1. Start PostgreSQL
+2. Wait for PostgreSQL to become healthy
+3. Apply pending Alembic migrations
+4. Start the FastAPI backend
+5. Wait for the backend to become healthy
+
+### 8. Check All Service States
 
 ```bash
-docker compose ps
+docker compose ps -a
 ```
 
-Both services should eventually appear as:
+Expected state:
 
 ```text
-healthy
+vulmp-postgres   Up (healthy)
+vulmp-migrate    Exited (0)
+vulmp-backend    Up (healthy)
 ```
 
-### 9. Test the liveness endpoint
+### 9. Test the Liveness Endpoint
+
+Open:
 
 ```text
 http://localhost:8000/health
@@ -501,7 +754,9 @@ Expected response:
 }
 ```
 
-### 10. Test the readiness endpoint
+### 10. Test the Readiness Endpoint
+
+Open:
 
 ```text
 http://localhost:8000/ready
@@ -515,13 +770,13 @@ Expected response:
 }
 ```
 
-### 11. Open the API documentation
+### 11. Open the API Documentation
 
 ```text
 http://localhost:8000/docs
 ```
 
-### 12. View the logs
+### 12. View the Logs
 
 ```bash
 docker compose logs --tail=50
@@ -533,7 +788,13 @@ Backend logs only:
 docker compose logs backend --tail=50
 ```
 
-### 13. Stop the environment
+Migration logs only:
+
+```bash
+docker compose logs migrate
+```
+
+### 13. Stop the Environment
 
 ```bash
 docker compose down
@@ -567,11 +828,11 @@ docker compose ps -a
 
 Expected behavior:
 
-* PostgreSQL appears as `Exited`;
-* the backend remains running;
-* the backend eventually becomes `unhealthy`;
-* `GET /health` continues responding successfully;
-* `GET /ready` returns `503 Service Unavailable`.
+* PostgreSQL appears as `Exited`
+* The backend remains running
+* The backend eventually becomes `unhealthy`
+* `GET /health` continues responding successfully
+* `GET /ready` returns `503 Service Unavailable`
 
 Restart PostgreSQL:
 
@@ -589,17 +850,64 @@ After PostgreSQL becomes healthy, the backend should also recover and become hea
 
 ---
 
+## Migration Validation Test
+
+A temporary empty PostgreSQL database was used to validate the initial migration without affecting the main database.
+
+The migration was applied with:
+
+```bash
+POSTGRES_HOST=localhost \
+POSTGRES_DB=vulmp_migration_test \
+python -m alembic upgrade head
+```
+
+The migration created:
+
+* The `alembic_version` table
+* The `assets` table
+* The `ix_assets_id` index
+
+The rollback was tested with:
+
+```bash
+POSTGRES_HOST=localhost \
+POSTGRES_DB=vulmp_migration_test \
+python -m alembic downgrade base
+```
+
+This removed the `assets` table and returned the temporary database to the state before the first revision.
+
+The migration was then reapplied with:
+
+```bash
+POSTGRES_HOST=localhost \
+POSTGRES_DB=vulmp_migration_test \
+python -m alembic upgrade head
+```
+
+After the validation was completed, the temporary database was removed.
+
+---
+
 ## Project Structure
 
 ```text
 vulmp/
 ├── app/
 │   └── backend/
+│       ├── alembic/
+│       │   ├── versions/
+│       │   │   └── 7783a45490f5_create_assets_table.py
+│       │   ├── env.py
+│       │   ├── README
+│       │   └── script.py.mako
 │       ├── app/
 │       │   ├── database.py
 │       │   ├── main.py
 │       │   ├── models.py
 │       │   └── schemas.py
+│       ├── alembic.ini
 │       ├── Dockerfile
 │       └── requirements.txt
 ├── .env.example
@@ -654,14 +962,12 @@ The local `.env` file is intentionally excluded because it is not committed to G
 * Created local `.env` configuration
 * Created a public `.env.example` template
 * Protected `.env` through `.gitignore`
-* Removed hardcoded database credentials from the Python code
-* Removed hardcoded PostgreSQL values from Docker Compose
+* Removed hardcoded database credentials
 * Injected environment variables into the backend container
 * Built the SQLAlchemy connection URL from environment variables
 * Added the reusable `get_db()` database dependency
 * Added FastAPI dependency injection with `Depends`
 * Added automatic SQLAlchemy session cleanup
-* Validated the existing asset endpoints
 * Confirmed that persisted PostgreSQL data remained available
 
 ### Milestone 6 — Health, Readiness and Docker Health Checks
@@ -678,13 +984,32 @@ The local `.env` file is intentionally excluded because it is not committed to G
 * Confirmed that liveness remained available during the failure
 * Confirmed that readiness returned `503 Service Unavailable`
 * Restarted PostgreSQL and validated automatic backend recovery
-* Confirmed that persisted data remained available after recovery
+
+### Milestone 7 — Database Migrations with Alembic
+
+* Installed and configured Alembic
+* Added `python-dotenv` for local migration configuration
+* Connected Alembic to the SQLAlchemy models and environment variables
+* Created the initial migration for the `assets` table
+* Tested the migration upgrade in an empty temporary database
+* Tested a complete migration rollback with `downgrade base`
+* Reapplied the migration after the rollback
+* Removed the temporary migration test database
+* Created a baseline for the existing database using `stamp head`
+* Preserved the existing PostgreSQL data
+* Removed automatic table creation from the FastAPI startup
+* Added the Alembic files to the backend Docker image
+* Added a one-shot Docker migration service
+* Configured the backend to wait for successful migrations
+* Validated the current database revision
+* Validated that no schema changes were pending
+* Confirmed that PostgreSQL and the backend remained healthy
 
 ---
 
 ## Learning Philosophy
 
-This project is intentionally being developed step-by-step in order to deeply understand each technology, concept and architectural decision involved in modern DevOps and cloud-native environments.
+This project is intentionally being developed step-by-step in order to deeply understand each technology, concept and architectural decision involved in modern DevOps and Cloud-Native environments.
 
 The goal is not only to build a working platform, but also to gain practical operational knowledge through troubleshooting, automation, observability and infrastructure design.
 
@@ -694,10 +1019,10 @@ Each milestone is implemented incrementally, tested locally, documented and vers
 
 ## Future Improvements
 
-* Add Alembic database migrations
 * Add full CRUD operations for assets
 * Add asset retrieval by ID
 * Add asset update and deletion endpoints
+* Add timestamps to assets
 * Improve API error handling
 * Add vulnerability and scan models
 * Add frontend dashboard

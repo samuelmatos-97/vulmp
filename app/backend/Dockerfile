@@ -1,20 +1,24 @@
-# Uses the official Python 3.12 image as a base image
+# Use a lightweight Python 3.12 base image.
 FROM python:3.12-slim
 
-# Set the working directory in the container
+# Set the working directory inside the container.
 WORKDIR /app
 
-# Copy the dependencies
-COPY app/backend/requirements.txt .
+# Copy and install the Python dependencies first.
+# This allows Docker to reuse the dependency layer when only code changes.
+COPY app/backend/requirements.txt ./requirements.txt
 
-# Install FastAPI/Uvicorn inside the image
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the API code
+# Copy the Alembic configuration and migration files.
+COPY app/backend/alembic.ini ./alembic.ini
+COPY app/backend/alembic ./alembic
+
+# Copy the FastAPI application code.
 COPY app/backend/app ./app
 
-# Expose the port that the API will run on
+# Document the port used by the FastAPI application.
 EXPOSE 8000
 
-# Runs the FastAPI inside the container
-CMD [ "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000" ]
+# Start the API when the backend container runs.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

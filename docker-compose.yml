@@ -1,6 +1,6 @@
 services:
   backend:
-    # Build the FastAPI backend image from the project Dockerfile.
+    # Build the image containing FastAPI and Alembic.
     build:
       context: .
       dockerfile: app/backend/Dockerfile
@@ -8,7 +8,7 @@ services:
     image: vulmp-backend:0.1
     container_name: vulmp-backend
 
-    # Load the database configuration into the backend container.
+    # Inject the database configuration into the container.
     env_file:
       - .env
 
@@ -18,12 +18,16 @@ services:
 
     # Start the backend only after PostgreSQL becomes healthy.
     depends_on:
+      # PostgreSQL must be ready before the backend starts.
       postgres:
         condition: service_healthy
 
+      # All database migrations must finish successfully first.
+      migrate:
+        condition: service_completed_successfully
+
     healthcheck:
-      # Call the readiness endpoint from inside the container.
-      # The check fails if the API or PostgreSQL is unavailable.
+      # The backend is healthy only when the readiness endpoint succeeds.
       test:
         [
           "CMD",
@@ -36,11 +40,42 @@ services:
       retries: 3
       start_period: 10s
 
+  migrate:
+    # Use the same image and dependencies as the backend.
+    build:
+      context: .
+      dockerfile: app/backend/Dockerfile
+
+    image: vulmp-backend:0.1
+    container_name: vulmp-migrate
+
+    env_file:
+      - .env
+
+    # Apply every pending migration and then exit.
+    command:
+      [
+        "python",
+        "-m",
+        "alembic",
+        "-c",
+        "alembic.ini",
+        "upgrade",
+        "head",
+      ]
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # This is a one-time job and should not restart automatically.
+    restart: "no"
+
   postgres:
     image: postgres:16
     container_name: vulmp-postgres
 
-    # Configure PostgreSQL using values from the .env file.
+    # Configure PostgreSQL using the local environment variables.
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -50,13 +85,12 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
 
-    # Persist database data outside the container lifecycle.
+    # Preserve database data outside the container lifecycle.
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
     healthcheck:
-      # Check whether PostgreSQL is ready to accept connections.
-      # Double dollar signs pass the variables to the container.
+      # Check whether PostgreSQL is accepting connections.
       test:
         [
           "CMD-SHELL",
@@ -68,5 +102,5 @@ services:
       start_period: 10s
 
 volumes:
-  # Named volume used for persistent PostgreSQL storage.
+  # Named volume containing the persistent PostgreSQL data.
   postgres_data:
