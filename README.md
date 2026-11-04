@@ -21,6 +21,9 @@ This project aims to provide hands-on experience with:
 * Security Scanning and Hardening
 * Linux and Automation
 * Backend API Development
+* Complete Asset CRUD Operations
+* Partial Updates and Request Validation
+* HTTP Status Codes and API Documentation
 * Database Integration
 * Persistent Storage
 * Multi-container Application Architecture
@@ -65,6 +68,8 @@ This project aims to provide hands-on experience with:
 * Python Virtual Environment (`venv`)
 * Visual Studio Code
 * Git Bash
+* Codex development assistance
+* Repository development guidelines in `AGENTS.md`
 
 ---
 
@@ -109,7 +114,7 @@ This project aims to provide hands-on experience with:
 
 ## Current Status
 
-The project currently includes a containerized FastAPI backend integrated with a PostgreSQL database using SQLAlchemy ORM.
+The project currently includes a containerized FastAPI backend integrated with a PostgreSQL database using SQLAlchemy ORM. The backend supports complete Asset CRUD functionality: creation, listing, retrieval by ID, partial updates and deletion.
 
 Application and database configuration is managed through environment variables loaded by Docker Compose.
 
@@ -153,7 +158,16 @@ Implemented features:
 * Backend startup dependency on successful migrations
 * Asset creation endpoint
 * Asset listing endpoint
-* Automatic OpenAPI documentation
+* Asset retrieval by ID
+* Partial asset updates using explicitly provided fields
+* Asset deletion with HTTP `204 No Content`
+* Signed 32-bit Asset ID validation
+* Rejection of explicit null values in asset updates
+* Automatic OpenAPI documentation with optional, non-nullable update fields
+
+Milestone 8 was validated manually using Swagger UI and `curl`, including persistence, regression, ID boundary, OpenAPI, liveness and readiness checks. Automated application tests and CI/CD pipelines are not yet implemented.
+
+Authentication and authorization are not yet implemented. The API is intended for local development and must not be exposed to untrusted clients without appropriate security controls.
 
 ---
 
@@ -573,6 +587,8 @@ No new upgrade operations detected.
 
 ## Available Endpoints
 
+Asset IDs in the examples are illustrative. Use the actual ID returned by `POST /assets` when making requests. When testing DELETE, create and use a dedicated temporary asset; do not delete existing project data.
+
 ### Health Check
 
 ```http
@@ -621,7 +637,7 @@ Example request body:
 }
 ```
 
-Example response:
+Successful response: `200 OK`.
 
 ```json
 {
@@ -632,6 +648,8 @@ Example response:
 }
 ```
 
+All three string fields are required. Missing fields, invalid field types and explicit null values return HTTP `422`.
+
 ---
 
 ### List Assets
@@ -640,7 +658,7 @@ Example response:
 GET /assets
 ```
 
-Example response:
+Successful response: `200 OK`.
 
 ```json
 [
@@ -653,6 +671,133 @@ Example response:
 ]
 ```
 
+An empty asset collection returns `[]` with HTTP `200 OK`.
+
+---
+
+### Get Asset by ID
+
+```http
+GET /assets/{asset_id}
+```
+
+Example request: `GET /assets/1`.
+
+Successful response: `200 OK`.
+
+```json
+{
+  "id": 1,
+  "name": "web-server-01",
+  "asset_type": "server",
+  "environment": "production"
+}
+```
+
+A missing asset returns `404 Not Found`. Invalid or out-of-range IDs return HTTP `422`, as described below.
+
+---
+
+### Update Asset
+
+```http
+PATCH /assets/{asset_id}
+```
+
+Example request: `PATCH /assets/1` with the following body:
+
+```json
+{
+  "environment": "staging"
+}
+```
+
+Successful response: `200 OK`.
+
+```json
+{
+  "id": 1,
+  "name": "web-server-01",
+  "asset_type": "server",
+  "environment": "staging"
+}
+```
+
+The `name`, `asset_type` and `environment` fields are optional to supply. The endpoint applies only explicitly provided fields using:
+
+```python
+update_data = asset_update.model_dump(exclude_unset=True)
+```
+
+Omitted fields remain unchanged. An empty request object, `{}`, is accepted and leaves the asset unchanged.
+
+Explicit null values, such as `{"environment": null}`, are rejected with HTTP `422` because the database fields are non-nullable. Invalid field types also return HTTP `422`.
+
+`AssetUpdate` uses `str | SkipJsonSchema[None] = None` to allow omitted fields while documenting only string values. The existing field validator rejects explicit null values at runtime; `SkipJsonSchema` controls schema generation only.
+
+A missing asset returns `404 Not Found`. Invalid or out-of-range IDs return HTTP `422`.
+
+---
+
+### Delete Asset
+
+```http
+DELETE /assets/{asset_id}
+```
+
+Example request: `DELETE /assets/1`.
+
+Use a dedicated temporary asset when testing this endpoint. Deletion permanently removes the matching row after the database transaction is committed.
+
+Successful response:
+
+```http
+HTTP/1.1 204 No Content
+```
+
+The response body is empty. Subsequent GET or DELETE requests for the same ID return `404 Not Found`.
+
+Invalid or out-of-range IDs return HTTP `422`.
+
+---
+
+### Asset ID Validation and Error Responses
+
+GET, PATCH and DELETE use a shared `AssetId` path parameter type with the inclusive PostgreSQL signed 32-bit `INTEGER` bounds:
+
+* Minimum: `-2147483648`
+* Maximum: `2147483647`
+
+Both boundary values are accepted for lookup. Zero and in-range negative IDs also proceed to the normal lookup and return HTTP `404` if no matching asset exists.
+
+Invalid text IDs such as `abc`, fractional values such as `1.5`, and out-of-range values such as `-2147483649` or `2147483648` return HTTP `422` before the endpoint's database lookup executes.
+
+Missing assets return HTTP `404 Not Found` with:
+
+```json
+{
+  "detail": "Asset not found."
+}
+```
+
+Validation errors return HTTP `422` with a `detail` array identifying the invalid path parameter or request body field. For example, `GET /assets/2147483648` returns:
+
+```json
+{
+  "detail": [
+    {
+      "type": "less_than_equal",
+      "loc": ["path", "asset_id"],
+      "msg": "Input should be less than or equal to 2147483647",
+      "input": "2147483648",
+      "ctx": {"le": 2147483647}
+    }
+  ]
+}
+```
+
+Database operation errors during PATCH or DELETE trigger rollback of the active transaction and return HTTP `500 Internal Server Error` with `{"detail": "Database operation failed."}`. A completed commit cannot be undone by a later rollback, including when PATCH fails while refreshing the committed asset.
+
 ---
 
 ## API Documentation
@@ -664,6 +809,14 @@ After starting the application, access:
 ```text
 http://localhost:8000/docs
 ```
+
+The generated OpenAPI schema is available at:
+
+```text
+http://localhost:8000/openapi.json
+```
+
+The PATCH request schema documents all three update fields as optional, non-nullable strings. The Asset ID path parameters document the inclusive signed 32-bit bounds. Swagger UI and the generated OpenAPI schema were manually checked during Milestone 8 validation.
 
 ---
 
@@ -912,6 +1065,7 @@ vulmp/
 │       └── requirements.txt
 ├── .env.example
 ├── .gitignore
+├── AGENTS.md
 ├── docker-compose.yml
 └── README.md
 ```
@@ -1005,6 +1159,25 @@ The local `.env` file is intentionally excluded because it is not committed to G
 * Validated that no schema changes were pending
 * Confirmed that PostgreSQL and the backend remained healthy
 
+### Milestone 8 — Complete Asset CRUD
+
+* Added `GET /assets/{asset_id}` with the existing HTTP `404` response convention
+* Added `PATCH /assets/{asset_id}` for partial updates
+* Added `DELETE /assets/{asset_id}` with HTTP `204 No Content` and an empty response body
+* Added the `AssetUpdate` schema and explicit null rejection for non-nullable database fields
+* Preserved omitted fields using `model_dump(exclude_unset=True)`
+* Reused `get_db()`, the existing ORM lookup pattern and `AssetResponse` for retrieval and update responses
+* Added commit, refresh and database error rollback handling for updates, and commit and rollback handling for deletion
+* Reproduced an HTTP `500` response for an Asset ID above PostgreSQL's signed 32-bit range
+* Fixed the ID validation bug with a shared bounded `AssetId` type across GET, PATCH and DELETE
+* Corrected the OpenAPI nullable-field mismatch using `SkipJsonSchema[None]` while preserving runtime null rejection
+* Used Codex-assisted analysis, incremental implementation, debugging and code review under `AGENTS.md` guidance
+* Completed incremental and final read-only code reviews and addressed the identified ID validation and OpenAPI issues
+* Manually validated CRUD operations, persistence, omitted fields, null rejection, HTTP `404`/`422` responses and ID boundaries using Swagger UI and `curl`
+* Manually validated OpenAPI documentation, regression behavior, `/health` and `/ready`
+* Confirmed no blocking issues remained within the agreed local development scope
+* Completed the milestone without database schema, dependency or Docker configuration changes
+
 ---
 
 ## Learning Philosophy
@@ -1015,13 +1188,14 @@ The goal is not only to build a working platform, but also to gain practical ope
 
 Each milestone is implemented incrementally, tested locally, documented and version-controlled using Git and GitHub.
 
+Codex assists with analysis, incremental implementation, debugging and code review following the repository guidelines in `AGENTS.md`. Proposed changes are explained and approved before files are modified. Validation and Git actions remain under user control; commits and pushes require explicit approval.
+
+Codex and `AGENTS.md` support the development workflow. They are not application runtime dependencies or deployed services.
+
 ---
 
 ## Future Improvements
 
-* Add full CRUD operations for assets
-* Add asset retrieval by ID
-* Add asset update and deletion endpoints
 * Add timestamps to assets
 * Improve API error handling
 * Add vulnerability and scan models
