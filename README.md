@@ -53,6 +53,13 @@ This project aims to provide hands-on experience with:
 * PostgreSQL 16
 * Alembic
 
+### Testing
+
+* pytest 9.0.2
+* FastAPI TestClient
+* HTTPX 0.28.1
+* Isolated PostgreSQL integration tests
+
 ### Version Control
 
 * Git
@@ -118,7 +125,7 @@ The project currently includes a containerized FastAPI backend integrated with a
 
 Application and database configuration is managed through environment variables loaded by Docker Compose.
 
-The environment includes:
+The development environment includes:
 
 * FastAPI liveness and readiness endpoints
 * Native Docker health checks
@@ -164,14 +171,24 @@ Implemented features:
 * Signed 32-bit Asset ID validation
 * Rejection of explicit null values in asset updates
 * Automatic OpenAPI documentation with optional, non-nullable update fields
+* Isolated Docker Compose environment for automated tests
+* Test-only configuration and early database destination validation
+* Alembic-based test setup and transaction isolation
+* Automated CRUD, validation, ID boundary and controlled failure tests
 
-Milestone 8 was validated manually using Swagger UI and `curl`, including persistence, regression, ID boundary, OpenAPI, liveness and readiness checks. Automated application tests and CI/CD pipelines are not yet implemented.
+Milestone 8 was validated manually using Swagger UI and `curl`, including persistence, regression, ID boundary, OpenAPI, liveness and readiness checks.
+
+Milestone 9 adds automated API tests using pytest, FastAPI TestClient and an isolated PostgreSQL database. The latest complete local suite result is **62 passed**.
+
+CI/CD pipelines and automated GitHub Actions execution are not yet implemented.
 
 Authentication and authorization are not yet implemented. The API is intended for local development and must not be exposed to untrusted clients without appropriate security controls.
 
 ---
 
 ## Current Architecture
+
+The diagram and startup flow below describe the development environment. Automated tests use the separate environment described in [Automated API Testing](#automated-api-testing).
 
 ```text
 Client
@@ -267,6 +284,8 @@ POSTGRES_PORT=5432
 ```
 
 The `.env` file must never be committed to the repository.
+
+Automated tests use a separate `.env.test` file created from `.env.test.example`. See [Automated API Testing](#automated-api-testing) for the isolated test configuration and commands.
 
 Inside the Docker network, the backend connects to PostgreSQL using:
 
@@ -875,7 +894,7 @@ Docker Compose will:
 2. Wait for PostgreSQL to become healthy
 3. Apply pending Alembic migrations
 4. Start the FastAPI backend
-5. Wait for the backend to become healthy
+5. Begin backend health checks; verify the healthy state in the service checks below
 
 ### 8. Check All Service States
 
@@ -962,6 +981,205 @@ docker compose down -v
 ```
 
 unless you intentionally want to delete the PostgreSQL volume and all persisted data.
+
+---
+
+## Automated API Testing
+
+The automated suite uses pytest, FastAPI TestClient and a real PostgreSQL 16 test database. HTTPX provides the HTTP client used by TestClient.
+
+TestClient runs the FastAPI application inside the test runner, including its real lifespan. The development backend and database do not need to be running.
+
+Run the commands below from the repository root using Git Bash. Docker must be running with Linux container support and Docker Compose v2 must support `up --wait`. Installing Python dependencies on the host is not required for this workflow.
+
+Local support for `--wait` remains to be checked during final verification. These setup instructions have not yet been independently validated from a fresh checkout.
+
+### Test Environment Isolation
+
+The test environment is defined in `docker-compose.test.yml` and uses the separate Compose project `vulmp-tests`.
+
+* Both services use a private internal Docker network.
+* PostgreSQL has no published host port.
+* PostgreSQL stores its data in `tmpfs`, without a persistent database volume.
+* Test containers do not mount development data or the Docker socket.
+* Local environment files are excluded from Docker build contexts.
+* Test configuration uses separate database names, credentials and service names.
+
+The development database and its persistent volume are not part of this test project.
+
+PostgreSQL data remains available while the test database container runs. Stopping that container discards its temporary database storage. The next startup initializes a new database, and pytest prepares its schema through Alembic.
+
+### 1. Configure the Test Environment
+
+For a clean checkout, create the local test configuration:
+
+```bash
+cp .env.test.example .env.test
+```
+
+Keep an existing `.env.test` file instead of overwriting it.
+
+Open `.env.test` in an editor and configure `TEST_POSTGRES_PASSWORD` with a unique, nonempty test-only password. Never reuse development database credentials or put real credentials in the public template.
+
+Keep the template's database and username unchanged. The safety guard accepts only the approved test destination.
+
+Private `.env` files and their variants are ignored by Git. The public `.env.example` and `.env.test.example` templates remain eligible for tracking.
+
+Every Compose command below explicitly selects:
+
+* `.env.test` for configuration interpolation.
+* `vulmp-tests` as the project name.
+* `docker-compose.test.yml` as the Compose file.
+
+This avoids relying on automatic loading of the development `.env` file. Exported shell variables take precedence over `--env-file`, so use a shell without conflicting `TEST_POSTGRES_*` values.
+
+### 2. Validate the Compose Configuration
+
+```bash
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml config --quiet
+```
+
+An exit status of `0` indicates a valid configuration.
+
+Use `--quiet` so validation does not print the resolved configuration, which contains the database password.
+
+### 3. Build the Test Image
+
+```bash
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml build tests
+```
+
+`app/backend/Dockerfile.test` uses Python 3.12 and installs `requirements-test.txt`, which includes the existing runtime requirements plus pinned pytest and HTTPX versions.
+
+The image explicitly copies the application, Alembic configuration, migrations and pytest directory. It does not copy local environment files.
+
+### 4. Start the Isolated Test Database
+
+When the test database is not running, start it and wait for its healthcheck:
+
+```bash
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml up -d --wait postgres-test
+```
+
+The test runner also depends on PostgreSQL becoming healthy.
+
+### 5. Run the Complete Suite
+
+```bash
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml run --rm tests
+```
+
+The image's default command runs:
+
+```text
+python -m pytest tests
+```
+
+The one-time runner container is removed when it exits. PostgreSQL remains running until the test project is stopped.
+
+Latest complete local validation result:
+
+```text
+62 passed
+```
+
+Run one suite at a time against this Compose project. The current infrastructure is designed for sequential execution.
+
+### 6. Run an Individual Module
+
+For example, run the asset creation and retrieval tests:
+
+```bash
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml run --rm tests python -m pytest -v tests/test_assets_create_read.py
+```
+
+Use paths relative to `/app` inside the image, such as `tests/test_health.py`.
+
+### 7. Rebuild After Changes
+
+The application, migrations, requirements and tests are copied into the image. They are not mounted from the working directory.
+
+After changing copied files or `Dockerfile.test`, rebuild before running tests again:
+
+```bash
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml build tests
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml run --rm tests
+```
+
+Running an existing image without rebuilding tests the previously copied files.
+
+### 8. Stop the Test Environment
+
+After test execution finishes, stop and remove only the test project's containers and network:
+
+```bash
+docker compose --env-file .env.test -p vulmp-tests -f docker-compose.test.yml down
+```
+
+This discards the temporary test database storage. The command selects the separate test project and does not target development services or their persistent volume.
+
+No volume-removal option is required.
+
+### Configuration Guards and Database Setup
+
+`tests/conftest.py` validates configuration before test modules import the application. It requires the testing flag, the exact approved PostgreSQL destination and a nonblank password. Previously imported application database modules cause validation to fail.
+
+The session-scoped `test_engine` fixture repeats validation before importing `app.database`. It checks the engine's driver, host, port, database and username before opening a connection. Unexpected URL query parameters or a mismatch with `DATABASE_URL` are rejected.
+
+The fixture loads the existing Alembic configuration using its absolute path and applies `alembic upgrade head` once per pytest execution.
+
+Schema preparation uses the existing migrations. Tests do not use `create_all()`, `drop_all()`, stamping or migration downgrades.
+
+### Transaction Isolation and Cleanup
+
+Each test using the `client` fixture receives a database connection with an outer transaction.
+
+FastAPI's original `get_db` dependency is temporarily overridden. Each request receives a fresh SQLAlchemy session bound to that connection with:
+
+```python
+join_transaction_mode="create_savepoint"
+```
+
+Endpoint calls to `commit()` operate inside savepoints while the outer test transaction remains active. Requests within the same test can retrieve the assets created by earlier requests.
+
+Request sessions close through context managers. TestClient closes after the test, dependency overrides are restored, and the outer transaction is rolled back before its connection closes. The engine is disposed at the end of the pytest session.
+
+The database setup smoke test uses the validated engine directly and performs read-only checks.
+
+The suite assumes an empty asset collection at the start of each test. Unexpected committed records cause the relevant checks to fail; tests do not automatically delete existing records.
+
+PostgreSQL sequence increments are not rolled back. Tests use IDs returned by the API and do not assume that IDs start at `1`, are sequential, or depend on test execution order.
+
+Changes inside the outer transaction are not globally committed and are not visible through separate connections. The application's lifespan and readiness checks use the validated test engine and only require database connectivity.
+
+### Test Coverage
+
+The nine test modules define 62 cases, including parameterized cases.
+
+| Module under `app/backend/tests/` | Cases | Coverage |
+|---|---:|---|
+| `test_database_setup.py` | 1 | Database identity, Alembic revision, assets table and index |
+| `test_health.py` | 2 | Health and readiness success |
+| `test_transaction_isolation.py` | 2 | Isolation between test cases |
+| `test_assets_create_read.py` | 5 | Creation, retrieval, collection, empty collection and missing assets |
+| `test_assets_update.py` | 5 | Partial updates, omitted fields, empty updates, null rejection and missing assets |
+| `test_assets_delete.py` | 3 | Deletion, empty HTTP 204 responses, missing assets and preservation of other assets |
+| `test_assets_validation.py` | 23 | Missing/null POST fields and null/invalid-type PATCH fields |
+| `test_assets_id_validation.py` | 18 | Valid integer boundaries, out-of-range IDs and malformed IDs |
+| `test_assets_database_errors.py` | 3 | PATCH/DELETE commit failures and readiness failure/recovery |
+| **Total** | **62** | |
+
+### Controlled Failure Testing Limitations
+
+PATCH and DELETE failure tests exercise the real endpoints and database sessions. They temporarily replace one session's `commit()` with a simulated SQLAlchemy exception and wrap the real `rollback()` method to verify its call.
+
+The simulated exception occurs before the real commit or flush. These tests verify error handling, explicit rollback calls and unchanged asset responses. They do not prove rollback of SQL writes already executed or reversal of a successful commit.
+
+The readiness failure test temporarily replaces only the engine reference used by `app.main`, after TestClient startup. It verifies HTTP 503 during the simulated connection failure and HTTP 200 after restoration.
+
+These simulations do not reproduce a real PostgreSQL outage, network timeout or broken connection pool. Temporary patches are restored before subsequent verification and fixture cleanup.
+
+Automated execution currently runs locally through Docker Compose. CI/CD pipelines and automated GitHub Actions execution remain future work.
 
 ---
 
@@ -1060,17 +1278,33 @@ vulmp/
 │       │   ├── main.py
 │       │   ├── models.py
 │       │   └── schemas.py
+│       ├── tests/
+│       │   ├── conftest.py
+│       │   ├── test_assets_create_read.py
+│       │   ├── test_assets_database_errors.py
+│       │   ├── test_assets_delete.py
+│       │   ├── test_assets_id_validation.py
+│       │   ├── test_assets_update.py
+│       │   ├── test_assets_validation.py
+│       │   ├── test_database_setup.py
+│       │   ├── test_health.py
+│       │   └── test_transaction_isolation.py
 │       ├── alembic.ini
 │       ├── Dockerfile
+│       ├── Dockerfile.test
+│       ├── requirements-test.txt
 │       └── requirements.txt
+├── .dockerignore
 ├── .env.example
+├── .env.test.example
 ├── .gitignore
 ├── AGENTS.md
+├── docker-compose.test.yml
 ├── docker-compose.yml
 └── README.md
 ```
 
-The local `.env` file is intentionally excluded because it is not committed to Git.
+The local `.env` and `.env.test` files are intentionally omitted because they are ignored by Git and must not be committed.
 
 ---
 
@@ -1177,6 +1411,24 @@ The local `.env` file is intentionally excluded because it is not committed to G
 * Manually validated OpenAPI documentation, regression behavior, `/health` and `/ready`
 * Confirmed no blocking issues remained within the agreed local development scope
 * Completed the milestone without database schema, dependency or Docker configuration changes
+
+### Milestone 9 — Automated API Testing with pytest
+
+* Added a separate Docker Compose test project with PostgreSQL 16, an internal network and temporary database storage
+* Created a dedicated Python 3.12 test image with explicit application, migration and test copies
+* Reused runtime requirements and added pinned pytest and HTTPX dependencies
+* Added a public test configuration template and strengthened Git and Docker environment-file exclusions
+* Implemented early configuration guards and engine destination validation before database access
+* Prepared the test schema through the existing Alembic migrations
+* Added isolated request sessions using outer transactions, SQLAlchemy savepoints and FastAPI dependency overrides
+* Preserved the real application lifespan and restored dependency overrides during cleanup
+* Added database setup, health, readiness, CRUD, request validation and Asset ID boundary tests
+* Added controlled PATCH/DELETE commit-failure tests and readiness connection-failure recovery testing
+* Verified transaction isolation across repeated pytest executions
+* Validated the complete local suite with **62 passed**
+* Preserved existing application behavior, migrations, runtime requirements and development Docker Compose configuration
+
+Automated execution remains local. CI/CD pipelines and GitHub Actions integration remain future work.
 
 ---
 

@@ -1,0 +1,6 @@
+# Keep the application dependencies identical to the runtime image.
+-r requirements.txt
+
+# Tools for synchronous API tests with FastAPI TestClient.
+pytest==9.0.2
+httpx==0.28.1

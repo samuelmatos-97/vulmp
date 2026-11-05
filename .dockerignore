@@ -1,0 +1,17 @@
+# Local environment files, including .env and .env.test.
+**/.env
+**/.env.*
+
+# Git metadata.
+**/.git
+
+# Local Python virtual environments.
+**/.venv
+**/venv
+**/env
+
+# Python bytecode and pytest caches.
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache

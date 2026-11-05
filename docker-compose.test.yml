@@ -1,0 +1,60 @@
+# Select this file with --env-file .env.test and -p vulmp-tests.
+name: vulmp-tests
+
+services:
+  postgres-test:
+    image: postgres:16
+
+    # Require test-only values instead of development configuration.
+    environment:
+      POSTGRES_DB: ${TEST_POSTGRES_DB:?Set TEST_POSTGRES_DB in .env.test}
+      POSTGRES_USER: ${TEST_POSTGRES_USER:?Set TEST_POSTGRES_USER in .env.test}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:?Set TEST_POSTGRES_PASSWORD in .env.test}
+
+    # Keep test data in memory instead of a persistent database volume.
+    tmpfs:
+      - /var/lib/postgresql/data
+
+    networks:
+      - test
+
+    healthcheck:
+      # Check the test database using variables inside this container.
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h localhost -p 5432 -U $${POSTGRES_USER} -d $${POSTGRES_DB}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  tests:
+    build:
+      context: .
+      dockerfile: app/backend/Dockerfile.test
+
+    # Configure the application before Python imports database.py.
+    environment:
+      VULMP_TESTING: "1"
+      POSTGRES_HOST: postgres-test
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${TEST_POSTGRES_DB:?Set TEST_POSTGRES_DB in .env.test}
+      POSTGRES_USER: ${TEST_POSTGRES_USER:?Set TEST_POSTGRES_USER in .env.test}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:?Set TEST_POSTGRES_PASSWORD in .env.test}
+
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+
+    networks:
+      - test
+
+    # The test runner is a one-time job.
+    restart: "no"
+
+networks:
+  # Only the test services share this private network.
+  test:
+    internal: true

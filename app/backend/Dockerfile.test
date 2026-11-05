@@ -1,0 +1,20 @@
+# Use the same Python version as the backend.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Reuse runtime requirements and add the testing tools.
+COPY app/backend/requirements.txt ./requirements.txt
+COPY app/backend/requirements-test.txt ./requirements-test.txt
+
+RUN python -m pip install --no-cache-dir -r requirements-test.txt
+
+# Include the existing migrations and application without environment files.
+COPY app/backend/alembic.ini ./alembic.ini
+COPY app/backend/alembic ./alembic
+COPY app/backend/app ./app
+
+# Include the pytest configuration guard.
+COPY app/backend/tests ./tests
+
+CMD ["python", "-m", "pytest", "tests"]
