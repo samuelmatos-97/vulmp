@@ -38,6 +38,10 @@ The project is developed incrementally to learn backend engineering, DevOps, Dev
 - Maintain health checks and service dependencies.
 - Explain changes to Dockerfiles and Compose configuration.
 - Do not execute destructive Docker commands without explicit approval.
+- Never run `docker compose down --volumes` or `docker compose down -v` without the user's explicit approval for that exact invocation.
+- Before requesting approval, enumerate every volume that the command can remove, identify the data stored in each volume, prove that each target is disposable or backed up, and state the recovery impact.
+- Treat uncertainty as a stop condition. Use non-destructive alternatives such as `docker compose stop`, `docker compose down` without volume removal, or targeted container recreation.
+- Never infer permission to delete volumes from permission to stop, rebuild, test, clean, or reset containers.
 
 ## Security Guidelines
 
@@ -49,19 +53,59 @@ The project is developed incrementally to learn backend engineering, DevOps, Dev
 ## Git Guidelines
 
 - Review changes before committing.
-- Never create commits or push changes without explicit approval.
-- Do not create branches or modify Git history without approval.
 - Use clear and descriptive commit messages.
-
-- Require explicit user approval before editing files, creating or switching branches, staging, committing, pushing, merging Pull Requests, changing repository settings or label definitions, or managing existing Issues.
-- Approval covers only the stated actions and scope. Approval to implement a change does not authorize staging, committing, pushing, or merging. An approval may explicitly cover a defined group of actions.
-- The approved exceptions are automatic creation of qualifying new Issues and automatic opening of qualifying Pull Requests, as described below. Neither exception authorizes implementation or merging.
+- Inspect the working tree before making changes and preserve unrelated work. Never include unrelated changes in task commits; stage only the relevant files or hunks.
+- For an authorized implementation task, Codex may create or select a dedicated task branch, modify task-related files, execute appropriate tests, stage and commit task changes, push the task branch, and create or update the associated Pull Request without repeated human approval.
+- Task authorization covers additional edits, tests, commits, pushes, and Pull Request updates necessary to complete the same assigned scope.
+- Rewriting existing Git history or force-pushing requires separate explicit human approval.
+- Destructive operations, changing repository settings or label definitions, and managing existing Issues require separate explicit human approval. The stricter rules for `main` below always apply.
 - Preserve all existing security, database, Docker, testing, and learning requirements when using these workflows.
+
+## Main Branch Protection — Mandatory
+
+Without explicit human authorization for the specific operation, Codex must never:
+
+- Commit directly to `main`.
+- Push directly to `main`.
+- Merge any Pull Request into `main`.
+- Rebase, reset, force-push, or rewrite `main` history.
+- Delete or recreate `main`.
+- Perform any other operation that directly modifies the local or remote `main` branch, including advancing local `main` through a pull or merge.
+
+- General development authorization, automatic tool approval, or permission for an earlier operation never authorizes a later modification of `main`. Obtain explicit human authorization for each specific operation on `main`.
+- Reading or comparing against `main` does not require approval. Creating or updating a Pull Request targeting `main` is permitted within an authorized task because it does not modify the target branch.
+- All merges into `main` require explicit human approval. Never enable automatic merging.
+
+## Authorized Development Workflow
+
+- An authorized implementation task is an explicit user assignment to implement a defined change. An audit, review, discussion, or newly created Issue alone does not authorize implementation.
+- Task authorization includes the ordinary development operations listed below, subject to any explicit restrictions in the current task. Do not request repeated approval while work remains within the authorized scope.
+- Do not expand beyond the assigned task or begin additional implementation tasks without user authorization. Ask for separate explicit human approval before destructive operations or decisions outside the assigned scope.
+
+For each authorized development task:
+
+1. Understand the task and inspect the relevant code.
+2. Check existing Issues and Pull Requests when appropriate.
+3. Create or select a dedicated task branch.
+4. Explain the objective and proposed changes, then implement the required changes.
+5. Execute appropriate validation.
+6. Review the final diff and exclude unrelated changes.
+7. Commit and push the task branch.
+8. Open or update the associated Pull Request.
+9. Report the changes, actual test results, outstanding validation, and Pull Request link.
+
+## Sandbox and Tool Permissions
+
+- Apply this workflow consistently in Codex CLI and Codex Desktop.
+- Keep the Codex sandbox enabled and use automatic approval review when available. Full Access mode is not required.
+- Request eligible operations outside the sandbox through the configured approval mechanism. Technical approval does not replace explicit human authorization where these instructions require it.
+- Use GitHub CLI or supported GitHub integrations as appropriate. The GitHub MCP server is not required.
+- These instructions do not override technical sandbox restrictions, GitHub permissions, configured approval mechanisms, or approval decisions. Do not bypass a denial; use a materially safer alternative or report the blocker and request human intervention.
 
 ## GitHub Issues Workflow
 
 - Evaluate nonblocking bugs, technical debt, security concerns, missing tests, documentation gaps, and useful improvements as potential Issues during reviews and task or milestone completion.
-- Codex may automatically create a relevant, actionable, non-duplicate Issue supported by adequate technical evidence, subject to the safeguards below.
+- Codex may autonomously create new GitHub Issues for actionable bugs, vulnerabilities, improvements, or development tasks without additional human approval, subject to the evidence, duplicate-check, and publication safeguards below and any explicit restrictions in the current task.
 - Before creation, review the current implementation, relevant milestone history, and existing open and closed Issues. Avoid trivial, already resolved, speculative, or low-value tickets; group overlapping findings when they share one coherent outcome.
 - Clearly distinguish confirmed defects, unverified concerns, known limitations, and proposed enhancements. An unverified concern requires concrete evidence and a defined validation task, not speculation.
 - Never publish secrets, credentials, sensitive vulnerability details, or confidential information. Escalate sensitive cases for private user review instead of publishing them.
@@ -88,22 +132,23 @@ Apply these Issue management rules:
 
 - Do not create repository labels automatically. If a label is missing, record the intended type or priority in the Issue body and propose label creation for user approval.
 - After creating Issues, report their numbers, URLs, and reasons for creation.
-- Issue creation does not authorize implementation. Managing existing Issues, including comments, metadata updates, closing, reopening, or reprioritizing, requires explicit user approval.
-- For the initial Milestones 1–9 backlog only, obtain review and approval of the candidate list before bulk Issue creation. This bootstrap exception prevents publication of an unreviewed backlog.
+- Issue creation does not authorize implementation. Managing existing Issues, including comments, metadata updates, closing, reopening, reprioritizing, or deleting, requires explicit human approval.
 
 ## Branch Workflow
 
 - Keep `main` stable and use short-lived branches for small, focused changes.
-- Create branches from a reviewed, up-to-date `main`. Inspect the working tree first and preserve unrelated changes.
+- Create task branches from a reviewed, up-to-date remote `main` reference, such as `origin/main`, without updating local `main`. Fetch remote references as needed through permitted tools without modifying the local or remote `main` branch.
+- Inspect the working tree first and preserve unrelated changes.
 - Use `<prefix>/<issue-number>-<short-description>` when an Issue exists, or `<prefix>/<short-description>` otherwise. Use lowercase words separated by hyphens.
 - Suggested prefixes are `fix`, `feat`, `docs`, `test`, `security`, and `chore`; examples are `fix/123-database-port-settings` and `docs/github-workflow`.
 - Keep each branch focused on one Issue or coherent outcome. Explain when related Issues belong in the same change.
-- Creating or switching branches requires explicit user approval. A naming convention does not authorize either action.
+- Creating or switching to a dedicated task branch is permitted within an authorized implementation task without repeated approval. A branch naming convention alone does not authorize implementation.
+- Push with an explicit task-branch destination so that an implicit push cannot update `main`.
 
 ## Pull Request Workflow
 
-- Codex may automatically open an associated Pull Request after the implementation and intended scope have been explicitly approved, changes have been reviewed, appropriate validation has been performed or outstanding validation clearly reported, and the branch has been committed and pushed with explicit user authorization.
-- An approved push of an implementation branch permits opening the associated Pull Request without separate approval. It does not authorize further file edits, staging, commits, pushes, or merges, or modification of existing Issues.
+- For an authorized implementation task, Codex may automatically create or update the associated Pull Request after reviewing the changes, performing appropriate validation or clearly reporting outstanding validation, and committing and pushing the task branch.
+- Existing task authorization covers further task-related edits, tests, staging, commits, pushes, and associated Pull Request updates without repeated approval. It does not authorize merging, modifying `main`, or managing existing Issues.
 - Target `main` unless another target has been explicitly agreed. Keep changes small and reviewable; exclude unrelated cleanup.
 - Use a Draft Pull Request when implementation or validation is incomplete. Never report unexecuted tests as passed.
 - Review all published content for secrets, credentials, sensitive vulnerability details, and confidential information. Escalate sensitive cases for private user review instead of publishing them.
@@ -123,15 +168,16 @@ Manage references and review as follows:
 - Before requesting merge approval, review the final diff, available CI checks, acceptance criteria, known limitations, and every Issue the merge would close. Obtain approval for those closures as part of the merge scope.
 - Every merge requires explicit user approval. Never enable automatic merging.
 - Do not assume GitHub Actions or branch protection are enabled. Respect configured requirements and accurately report unavailable or unexecuted checks; a documented self-review is appropriate for solo development unless repository rules require another reviewer.
-- After opening a Pull Request, report its number, URL, purpose, and Draft status.
+- After opening or updating a Pull Request, report its number, URL, purpose, Draft status, and actual validation results.
 - After an authorized merge, verify the resulting branch, linked Issue states, and repository status. Merging does not replace the existing milestone-completion requirements.
 
 ## Initial Workflow Bootstrap
 
-- The first collaboration-workflow Pull Request changes only `AGENTS.md` and uses the already approved branch `docs/github-workflow`.
+- If the first collaboration-workflow Pull Request is still pending, keep it scoped to `AGENTS.md` on `docs/github-workflow`. This bootstrap-specific scope does not restrict later task branches or authorize operations prohibited by the current task.
 - It does not require an existing Issue; explain the bootstrap purpose in the Pull Request description.
-- Initial backlog triage and creation, repository labels, Issue and Pull Request templates, GitHub Actions, and repository protection are separate tasks.
-- Normal approval requirements continue to apply. Automatic Issue or Pull Request creation remains subject to explicit restrictions in the current task.
+- New backlog Issues follow the same autonomous Issue creation rules, including evidence and duplicate checks; no separate candidate-list approval is required.
+- Repository labels, Issue and Pull Request templates, GitHub Actions, and repository protection remain separate tasks. Issue or Pull Request creation does not authorize changes to them.
+- Authorized task permissions apply, and explicit restrictions in the current task take precedence, including read-only or no-publication instructions.
 
 ## Testing and Validation
 
@@ -148,7 +194,7 @@ For each development task:
 1. Explain the objective.
 2. Identify the relevant files.
 3. Present the proposed implementation.
-4. Wait for approval before modifying files.
+4. If implementation is already authorized, proceed within its scope without renewed approval. Otherwise obtain user authorization before modifying files.
 5. Implement the approved changes.
 6. Explain the code and important decisions.
 7. Validate the implementation.
@@ -156,17 +202,19 @@ For each development task:
 
 ## Milestone Completion
 
-When a milestone is completed:
+When milestone completion is part of the authorized task scope:
 
 1. Validate the implemented functionality.
 2. Update `README.md` while preserving its formatting.
 3. Review Git changes.
-4. Create a commit only after user approval.
-5. Push changes only after user approval.
-6. Confirm that the working tree is clean.
+4. Commit the task-related changes on the dedicated task branch under the existing task authorization.
+5. Push the task branch and open or update its Pull Request under the existing task authorization.
+6. Confirm that no task-related changes remain uncommitted and report any preserved unrelated changes.
+
+Do not modify `main` or merge the Pull Request without separate explicit human approval. Do not expand an assigned fix into milestone completion without authorization.
 
 ## Important
 
 This is a learning-focused project.
 
-Codex should act as a development assistant, helping the user understand and implement each change rather than completing entire milestones without supervision.
+Codex should explain objectives, implementation decisions, and validation while autonomously completing authorized tasks on dedicated task branches. Keep work focused on the assigned scope, preserve human control over destructive operations and every modification of `main`, and do not undertake additional milestone work without authorization.
