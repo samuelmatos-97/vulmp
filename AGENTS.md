@@ -199,11 +199,12 @@ Every Pull Request should include:
 
 Manage references and review as follows:
 
-- Use plain references such as `Refs #N` for partial work or while Issue closure is not explicitly authorized. Use automatic-closing references such as `Closes #N` only when the Issue's acceptance criteria are fully satisfied, validation supports closure, and its closure is included in the user's explicit merge authorization.
+- For partial work on an Issue, use plain references such as `Refs #N`, never automatic-closing keywords for that Issue.
+- Codex may include automatic-closing references such as `Closes #N` in the PR description before merge authorization only when the Issue's complete acceptance criteria are fully satisfied and validation supports closure. These references propose closure; they do not authorize merging or closing the Issue.
 - Closing keywords take effect when the Pull Request merges into the default branch. Opening a Pull Request does not complete or close an Issue; approval to open it does not authorize Issue closure.
 - Avoid automatic-closing keywords in commit messages and automatic-closing Development links for partial work.
 - Before requesting merge approval, complete the final review report below and justify every proposed Issue closure against its acceptance criteria. Obtain approval for those closures as part of the merge scope.
-- Adding or changing closing references changes the PR description. If this happens after approval, repeat the review and request renewed authorization for the updated PR under the policy below before merging.
+- Any change to the proposed Issue-closure scope after authorization requires renewed review and authorization before merging, even when the head SHA is unchanged. Adding or changing closing references also remains subject to the PR-description change rules below.
 - Every merge requires explicit human authorization for the specific Pull Request and reviewed head commit SHA. Never enable automatic merging.
 - Do not assume GitHub Actions or branch protection are enabled. Respect configured requirements and accurately report unavailable or unexecuted checks; a documented self-review is appropriate for solo development unless repository rules require another reviewer.
 - After opening or updating a Pull Request, report its number, URL, purpose, Draft status, and actual validation results.
@@ -222,16 +223,17 @@ The final review report must include:
 - Repository, Pull Request number and URL, target branch, and the full reviewed head commit SHA.
 - Findings, distinguishing blocking issues from nonblocking observations, or an explicit statement that no findings were identified.
 - Validation commands and actual results, tests not performed and why, and available CI results, including failed, pending, or unavailable checks.
-- Outstanding risks or limitations, covered Issues and acceptance-criteria status, complete or partial outcomes, dependencies or blockers, and the justification for any proposed Issue closures.
+- Outstanding risks or limitations, covered Issues and acceptance-criteria status, complete or partial outcomes, and dependencies or blockers.
+- Every Issue that would automatically close when the PR is merged, with evidence that its complete acceptance criteria are satisfied and validation supports closure. Explicitly state when there are no proposed automatic Issue closures.
 - A clear merge recommendation and its reasons. A positive recommendation does not authorize a merge.
 
 Human authorization and merge execution must follow these rules:
 
-- When the Pull Request is ready, explicitly ask whether the user authorizes merging that specific Pull Request and reviewed commit into `main` using Squash and merge. Include the PR number or URL, full reviewed head SHA, and any Issue closures in the request. If another target or strategy has been explicitly agreed, state it instead.
-- Only execute the merge after receiving explicit human authorization for that specific Pull Request, reviewed head SHA, target branch, merge strategy, and any listed Issue closures.
+- When the Pull Request is ready, explicitly ask whether the user authorizes merging that specific Pull Request and reviewed commit into `main` using Squash and merge. Include the PR number or URL, full reviewed head SHA, merge strategy, and the complete list of proposed automatic Issue closures, or explicitly state that there are none. If another target or strategy has been explicitly agreed, state it instead.
+- Only execute the merge after receiving explicit human authorization for that specific Pull Request, reviewed head SHA, target branch, merge strategy, and all proposed automatic Issue closures. No Issue may be closed by merging without that explicit authorization.
 - Never interpret successful tests, a positive review, automatic tool approval, general development authorization, or permission for an earlier merge as authorization to merge.
 - If the PR changes after review or approval, including its head commit, target, description, or Issue-closure scope, repeat the review and appropriate validation, present an updated report, and request authorization again for the current PR and head commit.
-- Immediately before merging, re-read the PR state, target branch, current head SHA, mergeability, and applicable CI and repository requirements. Verify that the PR is open, the target matches the authorization, the head SHA matches the approved commit, and the PR remains mergeable with all required checks and approvals satisfied. Stop and report a blocker if any of these conditions fails or cannot be verified.
+- Immediately before merging, re-read the PR state, target branch, current head SHA, proposed automatic Issue closures, mergeability, and applicable CI and repository requirements. Verify that the PR is open, the target matches the authorization, the head SHA matches the approved commit, the complete Issue-closure scope matches the explicit authorization, and the PR remains mergeable with all required checks and approvals satisfied. Stop and report a blocker if any of these conditions fails or cannot be verified.
 - When supported, use `gh pr merge <number> --repo samuelmatos-97/vulmp --squash --match-head-commit <approved-head-sha>`. For an explicitly requested alternative strategy, use its corresponding flag while preserving the approved head-SHA guard. If the tool lacks an equivalent conditional head-SHA check, use a supported integration that enforces it or report the limitation instead of merging unchecked.
 - Never enable automatic merging or use `--auto`. Do not bypass repository requirements with `--admin`. If a merge queue or tool behavior would enable automatic merging or defer the merge, stop and report the limitation rather than enqueueing it.
 - For unattended or scheduled executions, stop before merging and report that explicit human authorization is required.
