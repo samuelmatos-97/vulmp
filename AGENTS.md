@@ -8,7 +8,7 @@ The project is developed incrementally to learn backend engineering, DevOps, Dev
 
 ## Development Principles
 
-- Work on one task at a time.
+- By default, implement one authorized PR-sized work unit at a time under the sequential implementation rules below.
 - Prioritize learning and understanding over development speed.
 - Explain the purpose of each proposed change before implementing it.
 - Keep changes small, clear, and easy to review.
@@ -78,15 +78,15 @@ Without explicit human authorization for the specific operation, Codex must neve
 
 ## Authorized Development Workflow
 
-- An authorized implementation task is an explicit user assignment to implement a defined change. An audit, review, discussion, or newly created Issue alone does not authorize implementation.
+- An authorized implementation task is an explicit user assignment to implement a defined change. An audit, triage, planning, review, discussion, or newly created Issue alone does not authorize implementation.
 - Task authorization includes the ordinary development operations listed below, subject to any explicit restrictions in the current task. Do not request repeated approval while work remains within the authorized scope.
 - Do not expand beyond the assigned task or begin additional implementation tasks without user authorization. Ask for separate explicit human approval before destructive operations or decisions outside the assigned scope.
 
 For each authorized development task:
 
 1. Understand the task and inspect the relevant code.
-2. Check existing Issues and Pull Requests when appropriate.
-3. Create or select a dedicated task branch.
+2. Check relevant Issues and existing Pull Requests. Before corrective implementation, prepare or update the Issue-to-PR plan described below.
+3. Create or select a dedicated branch for the authorized PR-sized work unit, respecting dependencies and the sequential implementation rules.
 4. Explain the objective and proposed changes, then implement the required changes.
 5. Execute appropriate validation.
 6. Review the final diff and exclude unrelated changes.
@@ -133,7 +133,43 @@ Apply these Issue management rules:
 
 - Do not create repository labels automatically. If a label is missing, record the intended type or priority in the Issue body and propose label creation for user approval.
 - After creating Issues, report their numbers, URLs, and reasons for creation.
-- Issue creation does not authorize implementation. Managing existing Issues, including comments, metadata updates, closing, reopening, reprioritizing, or deleting, requires explicit human approval.
+- Planning may read, classify, and reference existing Issues without modifying them. Record proposed classifications, priorities, and dependencies in the plan rather than changing Issue metadata.
+- Issue creation does not authorize implementation. Managing existing Issues, including editing, commenting, metadata updates, relabeling, closing, reopening, reprioritizing, or deleting, requires explicit human approval.
+
+## Comprehensive Repository Audits
+
+- When assigned a comprehensive repository audit, review all implemented milestones, steps, and relevant components. Use the current implementation and milestone history to establish coverage.
+- Create Issues covering every sufficiently supported, actionable, non-duplicate finding, with no arbitrary numerical limit. Apply the existing evidence, classification, duplicate-check, and sensitive-publication safeguards; coherent overlapping findings may share an Issue without omitting findings.
+- Record the milestones, steps, components, and checks reviewed. Explicitly disclose any areas that could not be reviewed and why; do not claim comprehensive coverage when it was not achieved.
+- An audit does not authorize implementing fixes. Triage and planning also require separate implementation authorization before corrective work begins.
+
+## Issue Triage and PR Planning
+
+Before implementing corrective work, the Corretor (the agent responsible for corrective implementation) must:
+
+1. Review relevant open Issues, existing Pull Requests, and the current implementation. Avoid duplicate Issues and redundant implementation PRs.
+2. Identify related findings, common root causes, dependencies, and blocking prerequisites.
+3. Determine technical priority using the project's priority definitions and propose an appropriate execution order without changing existing Issue metadata.
+4. Produce an implementation plan mapping Issues to proposed PR-sized work units. For each proposed PR, state its scope, covered Issues and acceptance criteria, intended complete or partial outcome, dependencies, blockers, and appropriate validation.
+5. Explain the reasons for grouping or splitting work and the technical trade-offs, including decisions that need user input.
+6. Reevaluate the plan when relevant repository state changes, including changes to Issues, PRs, dependencies, or the implementation.
+
+Planning and triage do not, by themselves, authorize implementation. A proposed plan does not authorize the entire backlog. Proceed only with the explicitly authorized work unit; existing authorization remains sufficient for ordinary operations within that unit's scope.
+
+## Flexible Issue-to-PR Relationships
+
+- Do not require one Issue per PR. A plan may resolve one Issue in one PR, resolve multiple closely related Issues in one coherent PR, split one complex Issue across smaller PRs, or sequence dependent PRs appropriately.
+- Group Issues only when they share a meaningful technical solution or cohesive implementation scope. Do not group unrelated Issues merely because they belong to the same milestone.
+- Prefer small, focused, testable PRs. Identify the acceptance criteria covered by each PR and clearly state which criteria remain for later work.
+- For partial implementations, use plain Issue references without claiming full resolution. Automatic Issue closure must follow the acceptance-criteria and human merge-authorization rules below.
+
+## Sequential Implementation
+
+- By default, implement one authorized PR-sized work unit at a time. Do not simultaneously implement the entire Issue backlog.
+- Complete the current PR's implementation, review, and human merge decision before starting another implementation work unit, unless the user explicitly authorizes a different workflow.
+- Respect blocking dependencies; do not begin dependent implementation while its blocking prerequisites remain unsatisfied. Report the blocker and reevaluate the execution order instead.
+- Prefer branches based on the latest remote `main` under the branch workflow below, without updating local `main`. Do not use stacked PRs by default; obtain explicit user authorization for a different workflow.
+- After each merge, reevaluate remaining work and dependencies and update the proposed plan. Completing a task or merging its PR does not authorize starting a new implementation task.
 
 ## Branch Workflow
 
@@ -142,7 +178,7 @@ Apply these Issue management rules:
 - Inspect the working tree first and preserve unrelated changes.
 - Use `<prefix>/<issue-number>-<short-description>` when an Issue exists, or `<prefix>/<short-description>` otherwise. Use lowercase words separated by hyphens.
 - Suggested prefixes are `fix`, `feat`, `docs`, `test`, `security`, and `chore`; examples are `fix/123-database-port-settings` and `docs/github-workflow`.
-- Keep each branch focused on one Issue or coherent outcome. Explain when related Issues belong in the same change.
+- Keep each branch focused on one coherent PR-sized work unit, following the Issue-to-PR plan when applicable. Explain when related Issues belong in the same change or one Issue is split across PRs.
 - Creating or switching to a dedicated task branch is permitted within an authorized implementation task without repeated approval. A branch naming convention alone does not authorize implementation.
 - Push with an explicit task-branch destination so that an implicit push cannot update `main`.
 
@@ -157,16 +193,18 @@ Apply these Issue management rules:
 Every Pull Request should include:
 
 - A clear English title and summary of the problem and solution.
-- Linked Issues, when applicable.
+- Linked Issues and their covered acceptance criteria, when applicable; identify complete or partial work and dependencies on other Issues or PRs.
 - Test commands and actual results, plus checks not performed and why.
 - Known limitations, security considerations, and relevant database, API, configuration, or deployment impacts.
 
 Manage references and review as follows:
 
-- Use plain references such as `Refs #N` for partial work. Use `Closes #N` in the Pull Request description only when the change fully satisfies the Issue's approved acceptance criteria and validation supports closure.
+- For partial work on an Issue, use plain references such as `Refs #N`, never automatic-closing keywords for that Issue.
+- Codex may include automatic-closing references such as `Closes #N` in the PR description before merge authorization only when the Issue's complete acceptance criteria are fully satisfied and validation supports closure. These references propose closure; they do not authorize merging or closing the Issue.
 - Closing keywords take effect when the Pull Request merges into the default branch. Opening a Pull Request does not complete or close an Issue; approval to open it does not authorize Issue closure.
 - Avoid automatic-closing keywords in commit messages and automatic-closing Development links for partial work.
-- Before requesting merge approval, complete the final review report below and identify every Issue the merge would close. Obtain approval for those closures as part of the merge scope.
+- Before requesting merge approval, complete the final review report below and justify every proposed Issue closure against its acceptance criteria. Obtain approval for those closures as part of the merge scope.
+- Any change to the proposed Issue-closure scope after authorization requires renewed review and authorization before merging, even when the head SHA is unchanged. Adding or changing closing references also remains subject to the PR-description change rules below.
 - Every merge requires explicit human authorization for the specific Pull Request and reviewed head commit SHA. Never enable automatic merging.
 - Do not assume GitHub Actions or branch protection are enabled. Respect configured requirements and accurately report unavailable or unexecuted checks; a documented self-review is appropriate for solo development unless repository rules require another reviewer.
 - After opening or updating a Pull Request, report its number, URL, purpose, Draft status, and actual validation results.
@@ -175,7 +213,8 @@ Manage references and review as follows:
 ## Pull Request Review and Merge Policy
 
 - The default merge strategy is **Squash and merge**. Use a different strategy only when the user explicitly requests it for the specific Pull Request; include that strategy in the merge authorization.
-- After creating or updating a Pull Request, record its full head commit SHA and review the complete diff at that commit. Assess correctness, security, regressions, test coverage, actual test results, available CI results, acceptance criteria, and compliance with project requirements.
+- After creating or updating a Pull Request, record its full head commit SHA and review the complete diff at that commit. Assess covered Issues and acceptance criteria, complete or partial resolution, dependencies on other Issues or PRs, correctness, security, regressions, test coverage, actual test results, available CI results, and compliance with project requirements.
+- Verify that proposed Issue closures are justified by satisfied acceptance criteria, that blocking dependencies are resolved, and that the PR is ready for human approval. Partial work must not claim full resolution.
 - If blocking issues are found, fix them on the task branch when the fix is within the authorized scope, perform appropriate validation, push the changes, and repeat the review. Report blockers outside the assigned scope and request authorization before expanding the task.
 - Confirm that the published head SHA still matches the reviewed commit before presenting the final report. Do not describe a different or unreviewed commit as ready to merge.
 
@@ -184,16 +223,17 @@ The final review report must include:
 - Repository, Pull Request number and URL, target branch, and the full reviewed head commit SHA.
 - Findings, distinguishing blocking issues from nonblocking observations, or an explicit statement that no findings were identified.
 - Validation commands and actual results, tests not performed and why, and available CI results, including failed, pending, or unavailable checks.
-- Outstanding risks or limitations, acceptance-criteria status, and any Issues that the merge would close.
+- Outstanding risks or limitations, covered Issues and acceptance-criteria status, complete or partial outcomes, and dependencies or blockers.
+- Every Issue that would automatically close when the PR is merged, with evidence that its complete acceptance criteria are satisfied and validation supports closure. Explicitly state when there are no proposed automatic Issue closures.
 - A clear merge recommendation and its reasons. A positive recommendation does not authorize a merge.
 
 Human authorization and merge execution must follow these rules:
 
-- When the Pull Request is ready, explicitly ask whether the user authorizes merging that specific Pull Request and reviewed commit into `main` using Squash and merge. Include the PR number or URL, full reviewed head SHA, and any Issue closures in the request. If another target or strategy has been explicitly agreed, state it instead.
-- Only execute the merge after receiving explicit human authorization for that specific Pull Request, reviewed head SHA, target branch, merge strategy, and any listed Issue closures.
+- When the Pull Request is ready, explicitly ask whether the user authorizes merging that specific Pull Request and reviewed commit into `main` using Squash and merge. Include the PR number or URL, full reviewed head SHA, merge strategy, and the complete list of proposed automatic Issue closures, or explicitly state that there are none. If another target or strategy has been explicitly agreed, state it instead.
+- Only execute the merge after receiving explicit human authorization for that specific Pull Request, reviewed head SHA, target branch, merge strategy, and all proposed automatic Issue closures. No Issue may be closed by merging without that explicit authorization.
 - Never interpret successful tests, a positive review, automatic tool approval, general development authorization, or permission for an earlier merge as authorization to merge.
 - If the PR changes after review or approval, including its head commit, target, description, or Issue-closure scope, repeat the review and appropriate validation, present an updated report, and request authorization again for the current PR and head commit.
-- Immediately before merging, re-read the PR state, target branch, current head SHA, mergeability, and applicable CI and repository requirements. Verify that the PR is open, the target matches the authorization, the head SHA matches the approved commit, and the PR remains mergeable with all required checks and approvals satisfied. Stop and report a blocker if any of these conditions fails or cannot be verified.
+- Immediately before merging, re-read the PR state, target branch, current head SHA, proposed automatic Issue closures, mergeability, and applicable CI and repository requirements. Verify that the PR is open, the target matches the authorization, the head SHA matches the approved commit, the complete Issue-closure scope matches the explicit authorization, and the PR remains mergeable with all required checks and approvals satisfied. Stop and report a blocker if any of these conditions fails or cannot be verified.
 - When supported, use `gh pr merge <number> --repo samuelmatos-97/vulmp --squash --match-head-commit <approved-head-sha>`. For an explicitly requested alternative strategy, use its corresponding flag while preserving the approved head-SHA guard. If the tool lacks an equivalent conditional head-SHA check, use a supported integration that enforces it or report the limitation instead of merging unchecked.
 - Never enable automatic merging or use `--auto`. Do not bypass repository requirements with `--admin`. If a merge queue or tool behavior would enable automatic merging or defer the merge, stop and report the limitation rather than enqueueing it.
 - For unattended or scheduled executions, stop before merging and report that explicit human authorization is required.
