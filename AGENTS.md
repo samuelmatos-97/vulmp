@@ -74,7 +74,7 @@ Without explicit human authorization for the specific operation, Codex must neve
 
 - General development authorization, automatic tool approval, or permission for an earlier operation never authorizes a later modification of `main`. Obtain explicit human authorization for each specific operation on `main`.
 - Reading or comparing against `main` does not require approval. Creating or updating a Pull Request targeting `main` is permitted within an authorized task because it does not modify the target branch.
-- All merges into `main` require explicit human approval. Never enable automatic merging.
+- All merges into `main` require explicit human authorization for the specific Pull Request and reviewed head commit SHA under the review and merge policy below. Never enable automatic merging.
 
 ## Authorized Development Workflow
 
@@ -92,7 +92,8 @@ For each authorized development task:
 6. Review the final diff and exclude unrelated changes.
 7. Commit and push the task branch.
 8. Open or update the associated Pull Request.
-9. Report the changes, actual test results, outstanding validation, and Pull Request link.
+9. Review the published Pull Request and perform appropriate validation under the review and merge policy below. Fix authorized blocking issues and repeat the review after each update.
+10. Present the final review report and, when ready, request explicit human merge authorization. Stop before merging until that authorization is received and verified.
 
 ## Sandbox and Tool Permissions
 
@@ -165,11 +166,39 @@ Manage references and review as follows:
 - Use plain references such as `Refs #N` for partial work. Use `Closes #N` in the Pull Request description only when the change fully satisfies the Issue's approved acceptance criteria and validation supports closure.
 - Closing keywords take effect when the Pull Request merges into the default branch. Opening a Pull Request does not complete or close an Issue; approval to open it does not authorize Issue closure.
 - Avoid automatic-closing keywords in commit messages and automatic-closing Development links for partial work.
-- Before requesting merge approval, review the final diff, available CI checks, acceptance criteria, known limitations, and every Issue the merge would close. Obtain approval for those closures as part of the merge scope.
-- Every merge requires explicit user approval. Never enable automatic merging.
+- Before requesting merge approval, complete the final review report below and identify every Issue the merge would close. Obtain approval for those closures as part of the merge scope.
+- Every merge requires explicit human authorization for the specific Pull Request and reviewed head commit SHA. Never enable automatic merging.
 - Do not assume GitHub Actions or branch protection are enabled. Respect configured requirements and accurately report unavailable or unexecuted checks; a documented self-review is appropriate for solo development unless repository rules require another reviewer.
 - After opening or updating a Pull Request, report its number, URL, purpose, Draft status, and actual validation results.
 - After an authorized merge, verify the resulting branch, linked Issue states, and repository status. Merging does not replace the existing milestone-completion requirements.
+
+## Pull Request Review and Merge Policy
+
+- The default merge strategy is **Squash and merge**. Use a different strategy only when the user explicitly requests it for the specific Pull Request; include that strategy in the merge authorization.
+- After creating or updating a Pull Request, record its full head commit SHA and review the complete diff at that commit. Assess correctness, security, regressions, test coverage, actual test results, available CI results, acceptance criteria, and compliance with project requirements.
+- If blocking issues are found, fix them on the task branch when the fix is within the authorized scope, perform appropriate validation, push the changes, and repeat the review. Report blockers outside the assigned scope and request authorization before expanding the task.
+- Confirm that the published head SHA still matches the reviewed commit before presenting the final report. Do not describe a different or unreviewed commit as ready to merge.
+
+The final review report must include:
+
+- Repository, Pull Request number and URL, target branch, and the full reviewed head commit SHA.
+- Findings, distinguishing blocking issues from nonblocking observations, or an explicit statement that no findings were identified.
+- Validation commands and actual results, tests not performed and why, and available CI results, including failed, pending, or unavailable checks.
+- Outstanding risks or limitations, acceptance-criteria status, and any Issues that the merge would close.
+- A clear merge recommendation and its reasons. A positive recommendation does not authorize a merge.
+
+Human authorization and merge execution must follow these rules:
+
+- When the Pull Request is ready, explicitly ask whether the user authorizes merging that specific Pull Request and reviewed commit into `main` using Squash and merge. Include the PR number or URL, full reviewed head SHA, and any Issue closures in the request. If another target or strategy has been explicitly agreed, state it instead.
+- Only execute the merge after receiving explicit human authorization for that specific Pull Request, reviewed head SHA, target branch, merge strategy, and any listed Issue closures.
+- Never interpret successful tests, a positive review, automatic tool approval, general development authorization, or permission for an earlier merge as authorization to merge.
+- If the PR changes after review or approval, including its head commit, target, description, or Issue-closure scope, repeat the review and appropriate validation, present an updated report, and request authorization again for the current PR and head commit.
+- Immediately before merging, re-read the PR state, target branch, current head SHA, mergeability, and applicable CI and repository requirements. Verify that the PR is open, the target matches the authorization, the head SHA matches the approved commit, and the PR remains mergeable with all required checks and approvals satisfied. Stop and report a blocker if any of these conditions fails or cannot be verified.
+- When supported, use `gh pr merge <number> --repo samuelmatos-97/vulmp --squash --match-head-commit <approved-head-sha>`. For an explicitly requested alternative strategy, use its corresponding flag while preserving the approved head-SHA guard. If the tool lacks an equivalent conditional head-SHA check, use a supported integration that enforces it or report the limitation instead of merging unchecked.
+- Never enable automatic merging or use `--auto`. Do not bypass repository requirements with `--admin`. If a merge queue or tool behavior would enable automatic merging or defer the merge, stop and report the limitation rather than enqueueing it.
+- For unattended or scheduled executions, stop before merging and report that explicit human authorization is required.
+- Merge authorization does not authorize branch deletion, updating local `main`, changing repository settings, or other actions outside the approved merge scope.
+- Explicit restrictions in the current task, including instructions not to merge, remain binding even when the Pull Request is otherwise ready.
 
 ## Initial Workflow Bootstrap
 
